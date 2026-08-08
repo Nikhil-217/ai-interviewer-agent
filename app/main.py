@@ -431,7 +431,8 @@ def handle_interview_turn(request: IncomingRequest):
             "history": [{"role": "assistant", "content": final_reply}],
             "running_summary": "",
             "completed": False,
-            "feedback": None
+            "feedback": None,
+            "move_to_next": False
         }
         
         return OutgoingResponse(
@@ -483,6 +484,12 @@ def handle_interview_turn(request: IncomingRequest):
                 feedback=feedback
             )
             
+        # Check if we should transition to the next topic before generating the next question
+        if session.get("move_to_next", False):
+            session["current_focus_index"] += 1
+            session["current_day_questions"] = 0
+            session["move_to_next"] = False
+
         # Select current day to probe
         focus_days = session["focus_map"].get("focus_days", [])
         strong_days = session["focus_map"].get("strong_days", [])
@@ -514,39 +521,9 @@ def handle_interview_turn(request: IncomingRequest):
             session.get("running_summary")
         )
         
-        # Check for [MOVE_ON] signal
-        if "[MOVE_ON]" in llm_reply or session["current_day_questions"] >= 2:
-            # Advance to the next day immediately
-            session["current_focus_index"] += 1
-            session["current_day_questions"] = 0
-            
-            # Select the new day
-            next_focus_idx = session["current_focus_index"]
-            if next_focus_idx < len(focus_days):
-                next_day_info = focus_days[next_focus_idx]
-            else:
-                next_strong_idx = next_focus_idx - len(focus_days)
-                if next_strong_idx < len(strong_days):
-                    next_day_info = strong_days[next_strong_idx]
-                else:
-                    uncovered = [d for d in CURRICULUM.keys() if d not in session["days_covered"]]
-                    fallback_day = uncovered[0] if uncovered else 1
-                    next_day_info = {
-                        "day": fallback_day,
-                        "title": CURRICULUM[fallback_day]["title"],
-                        "reason": "General curriculum knowledge check.",
-                        "priority": "low"
-                    }
-                    
-            new_system_prompt = get_system_prompt(next_day_info, session["candidate"])
-            llm_reply = generate_llm_response(
-                new_system_prompt,
-                session["history"],  # Pass history including the latest answer
-                0,
-                next_day_info,
-                session.get("running_summary")
-            )
-            day_info = next_day_info
+        # Determine if we should transition on the NEXT turn
+        if "[MOVE_ON]" in llm_reply or session["current_day_questions"] >= 1:
+            session["move_to_next"] = True
             
         # Clean reply from [MOVE_ON] tag
         clean_reply = llm_reply.replace("[MOVE_ON]", "").strip()
