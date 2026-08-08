@@ -1,4 +1,5 @@
 import os
+import json
 from typing import List, Optional, Dict, Any
 from fastapi import FastAPI, HTTPException, status
 from pydantic import BaseModel, Field
@@ -124,13 +125,18 @@ Difficulty adaptation path: {difficulty_instruction}
 """
     return system_prompt
 
-def generate_llm_response(system_prompt: str, history: List[Dict[str, str]], current_day_questions: int, day_title: str) -> str:
+def generate_llm_response(system_prompt: str, history: List[Dict[str, str]], current_day_questions: int, day_title: str, running_summary: Optional[str] = None) -> str:
     """
     Calls the OpenAI client to generate the question. Fallback to simulation if client is not configured.
     """
     if client is not None:
         try:
             messages = [{"role": "system", "content": system_prompt}]
+            if running_summary:
+                messages.append({
+                    "role": "system",
+                    "content": f"Here is a summary of the conversation history so far: {running_summary}"
+                })
             # Format history to OpenAI format
             for h in history:
                 messages.append({"role": h["role"], "content": h["content"]})
@@ -145,11 +151,53 @@ def generate_llm_response(system_prompt: str, history: List[Dict[str, str]], cur
             print(f"Error calling OpenAI API: {e}. Falling back to simulation.")
             
     # Simulation Fallback (Offline/Testing mode)
-    # If current_day_questions is 1, this is the second question, so we signal a transition by appending [MOVE_ON]
     if current_day_questions >= 1:
         return f"Simulated follow-up question for {day_title}. [MOVE_ON]"
     else:
         return f"Simulated initial question for {day_title}."
+
+def summarize_history(session: Dict[str, Any]) -> None:
+    """
+    Summarizes the earliest 4 messages (2 turns) of history into a running summary
+    if the history size reaches 8 messages or more, then removes them from history.
+    """
+    history = session.get("history", [])
+    if len(history) >= 8:
+        slice_to_summarize = history[:4]
+        content_to_summarize = json.dumps(slice_to_summarize)
+        
+        old_summary = session.get("running_summary", "")
+        summary_prompt = (
+            "You are a helpful assistant. Summarize this portion of a technical interview. "
+            "Focus on the questions asked, the candidate's answers, and any gaps or strengths identified. "
+            "Keep it brief (2-3 sentences)."
+        )
+        if old_summary:
+            summary_prompt += f" Append and integrate this with the previous summary: {old_summary}"
+            
+        new_summary = ""
+        if client is not None:
+            try:
+                response = client.chat.completions.create(
+                    model="gpt-4o-mini",
+                    messages=[
+                        {"role": "system", "content": summary_prompt},
+                        {"role": "user", "content": content_to_summarize}
+                    ],
+                    temperature=0.5
+                )
+                new_summary = response.choices[0].message.content.strip()
+            except Exception as e:
+                print(f"Error generating history summary: {e}")
+                
+        if not new_summary:
+            # Fallback simulation summary
+            new_summary = f"The candidate answered questions about Day {slice_to_summarize[0].get('content', '')[:30]}."
+            if old_summary:
+                new_summary = f"{old_summary} Also, {new_summary}"
+                
+        session["running_summary"] = new_summary
+        session["history"] = history[4:]
 
 # --- API Endpoints ---
 
@@ -157,6 +205,15 @@ def generate_llm_response(system_prompt: str, history: List[Dict[str, str]], cur
 def handle_interview_turn(request: IncomingRequest):
     session_id = request.sessionId
     
+    # Check if session is already completed to return cached feedback directly
+    if session_id in SESSIONS and SESSIONS[session_id].get("completed", False):
+        feedback = SESSIONS[session_id]["feedback"]
+        return OutgoingResponse(
+            reply="Interview completed.",
+            done=True,
+            feedback=Feedback(**feedback)
+        )
+        
     # 1. Start Turn
     if request.candidate is not None:
         candidate_dict = request.candidate.model_dump()
@@ -176,10 +233,8 @@ def handle_interview_turn(request: IncomingRequest):
         # Call LLM to get the initial question
         llm_reply = generate_llm_response(system_prompt, [], 0, first_day["title"])
         
-        # Check if the LLM output returned [MOVE_ON] (unlikely for first turn, but handle it)
+        # Check if the LLM output returned [MOVE_ON]
         clean_reply = llm_reply.replace("[MOVE_ON]", "").strip()
-        
-        # If it was welcoming, we can prefix it
         final_reply = f"Welcome. Let's begin your interview. {clean_reply}"
         
         SESSIONS[session_id] = {
@@ -189,7 +244,10 @@ def handle_interview_turn(request: IncomingRequest):
             "days_covered": [first_day["day"]],
             "current_focus_index": 0,
             "current_day_questions": 1,
-            "history": [{"role": "assistant", "content": final_reply}]
+            "history": [{"role": "assistant", "content": final_reply}],
+            "running_summary": "",
+            "completed": False,
+            "feedback": None
         }
         
         return OutgoingResponse(
@@ -206,19 +264,40 @@ def handle_interview_turn(request: IncomingRequest):
             )
             
         session = SESSIONS[session_id]
+        
+        # Guardrail: Check for empty / garbage inputs
+        msg_str = request.message.strip()
+        if not msg_str:
+            # Get last question from history to repeat
+            last_question = "Could you please tell me more about how you approached this topic?"
+            for msg in reversed(session["history"]):
+                if msg["role"] == "assistant":
+                    last_question = msg["content"]
+                    break
+            reply = f"I didn't quite catch that. {last_question}"
+            return OutgoingResponse(
+                reply=reply,
+                done=False
+            )
+            
         session["history"].append({"role": "user", "content": request.message})
+        
+        # Check if we should summarize history before proceeding (context management)
+        summarize_history(session)
         
         # Check termination condition
         if session["questions_asked"] >= 8 and len(session["days_covered"]) >= 4:
             # Conclude interview
-            # In a production app, we would summarize the actual history using an LLM.
-            # Here we return structured mock feedback for now.
             feedback = Feedback(
                 summary="You have completed the technical interview. Good job!",
-                strengths=["Excellent conceptual depth in embeddings", "Solid practical understanding of vector search"],
+                strengths=["Conceptual accuracy on vector search", "Solid practical understanding of boot camp stack"],
                 gaps=["Familiarity with container networking", "Observability tool implementation details"],
                 next=["Review Docker networking objectives", "Spend more time on logging and tracing tools"]
             )
+            # Cache completed state
+            session["completed"] = True
+            session["feedback"] = feedback.model_dump()
+            
             return OutgoingResponse(
                 reply="Interview completed.",
                 done=True,
@@ -252,7 +331,8 @@ def handle_interview_turn(request: IncomingRequest):
             system_prompt,
             session["history"][:-1],  # Pass prior history
             session["current_day_questions"],
-            day_info["title"]
+            day_info["title"],
+            session.get("running_summary")
         )
         
         # Check for [MOVE_ON] signal
@@ -261,9 +341,7 @@ def handle_interview_turn(request: IncomingRequest):
             session["current_focus_index"] += 1
             session["current_day_questions"] = 0
             
-            # Recheck termination before asking next day's question
-            # (In case this was the 8th question or we met termination)
-            # Wait, if we haven't reached 8 yet, we generate the first question of the new day.
+            # Select the new day
             next_focus_idx = session["current_focus_index"]
             if next_focus_idx < len(focus_days):
                 next_day_info = focus_days[next_focus_idx]
@@ -286,7 +364,8 @@ def handle_interview_turn(request: IncomingRequest):
                 new_system_prompt,
                 session["history"],  # Pass history including the latest answer
                 0,
-                next_day_info["title"]
+                next_day_info["title"],
+                session.get("running_summary")
             )
             day_info = next_day_info
             
