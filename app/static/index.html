@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Interview Agent - Technical Simulator</title>
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Header -->
+        <header class="app-header">
+            <div class="header-logo">
+                <span class="logo-dot"></span>
+                <h1>AI Technical Interviewer</h1>
+                <span class="badge" id="status-badge">Simulator Idle</span>
+            </div>
+            <button class="icon-btn" id="open-settings-btn" title="API Settings">
+                <!-- Settings SVG icon -->
+                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+            </button>
+        </header>
+
+        <!-- Main Wrapper -->
+        <main class="app-main-content">
+            <!-- 1. Landing / Setup View -->
+            <section id="view-landing" class="view-panel active">
+                <div class="landing-hero">
+                    <h2>Evaluate Candidates Against the AI Cohort Curriculum</h2>
+                    <p>Conduct realistic, multi-turn, adaptive technical interviews probing candidates on their completed, skipped, or struggled milestones.</p>
+                </div>
+
+                <div class="card-grid">
+                    <!-- Dropdown Select Card -->
+                    <div class="selection-card glass-card">
+                        <h3>Select a Pre-configured Profile</h3>
+                        <p class="card-desc">Choose from candidates stored in candidates.json:</p>
+                        <div class="input-group">
+                            <select id="candidate-select">
+                                <option value="" disabled selected>Loading candidates...</option>
+                            </select>
+                        </div>
+                        <div id="candidate-summary" class="hidden">
+                            <div class="summary-divider"></div>
+                            <div class="info-row">
+                                <span class="info-label">Job Role</span>
+                                <span class="info-val" id="cand-role">-</span>
+                            </div>
+                            <div class="info-row">
+                                <span class="info-label">Experience</span>
+                                <span class="info-val" id="cand-exp">-</span>
+                            </div>
+                            <div class="info-row">
+                                <span class="info-label">Education</span>
+                                <span class="info-val" id="cand-edu">-</span>
+                            </div>
+                            <div class="info-row font-sm">
+                                <span class="info-label">Missions Passed</span>
+                                <span class="info-val" id="cand-missions">-</span>
+                            </div>
+                            <div class="info-row font-sm">
+                                <span class="info-label">Commit Days</span>
+                                <span class="info-val" id="cand-commits">-</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Custom Paste JSON Card -->
+                    <div class="selection-card glass-card">
+                        <h3>Or Paste Custom Candidate JSON</h3>
+                        <p class="card-desc">Start an interview with custom performance metrics:</p>
+                        <div class="input-group">
+                            <textarea id="custom-json-input" placeholder='{ "member": { "id": "CUSTOM-001", "name": "Alex Mercer", "jobRole": "ML Engineer", ... } }'></textarea>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="action-bar text-center">
+                    <button class="primary-btn glow-btn" id="start-interview-btn">
+                        <span>Start Technical Simulator</span>
+                    </button>
+                    <div class="error-text mt-3 hidden" id="landing-error"></div>
+                </div>
+            </section>
+
+            <!-- 2. Chat / Interview Simulator View -->
+            <section id="view-chat" class="view-panel hidden">
+                <div class="chat-viewport glass-card">
+                    <!-- Message container -->
+                    <div class="message-list" id="chat-messages">
+                        <!-- Messages are injected here by app.js -->
+                    </div>
+
+                    <!-- Typing indicator -->
+                    <div class="typing-indicator hidden" id="typing-indicator">
+                        <span class="indicator-dot"></span>
+                        <span class="indicator-dot"></span>
+                        <span class="indicator-dot"></span>
+                        <span class="indicator-text">AI Interviewer is analyzing...</span>
+                    </div>
+                </div>
+
+                <!-- Input area -->
+                <div class="chat-input-bar glass-card">
+                    <form id="chat-form">
+                        <input type="text" id="chat-input" placeholder="Type your response to the interviewer..." autocomplete="off">
+                        <button type="submit" class="send-btn" id="send-btn">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
+                        </button>
+                    </form>
+                </div>
+                
+                <div class="chat-error-bar hidden" id="chat-error"></div>
+            </section>
+
+            <!-- 3. Feedback Report View -->
+            <section id="view-feedback" class="view-panel hidden">
+                <div class="landing-hero">
+                    <h2>Interview Feedback Report</h2>
+                    <p>Detailed analysis of your cohort understanding based on probed topics.</p>
+                </div>
+
+                <div class="feedback-layout">
+                    <!-- Overall Summary Card -->
+                    <div class="summary-feedback-card glass-card">
+                        <h3>Assessment Summary</h3>
+                        <p id="feedback-summary-text">-</p>
+                    </div>
+
+                    <!-- Strengths, Gaps, Next Steps Grid -->
+                    <div class="feedback-grid">
+                        <!-- Strengths Card -->
+                        <div class="report-card card-strengths glass-card">
+                            <div class="card-header">
+                                <span class="card-icon">💪</span>
+                                <h4>Demonstrated Strengths</h4>
+                            </div>
+                            <ul id="strengths-list">
+                                <!-- Injected -->
+                            </ul>
+                        </div>
+
+                        <!-- Gaps Card -->
+                        <div class="report-card card-gaps glass-card">
+                            <div class="card-header">
+                                <span class="card-icon">⚠️</span>
+                                <h4>Identified Knowledge Gaps</h4>
+                            </div>
+                            <ul id="gaps-list">
+                                <!-- Injected -->
+                            </ul>
+                        </div>
+
+                        <!-- Next Steps Card -->
+                        <div class="report-card card-next glass-card">
+                            <div class="card-header">
+                                <span class="card-icon">🚀</span>
+                                <h4>Recommended Next Steps</h4>
+                            </div>
+                            <ul id="next-list">
+                                <!-- Injected -->
+                            </ul>
+                        </div>
+                    </div>
+
+                    <div class="action-bar text-center mt-5">
+                        <button class="primary-btn secondary-glow" id="restart-btn">
+                            <span>Conclude & Restart Simulator</span>
+                        </button>
+                    </div>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <!-- Settings Modal -->
+    <div class="modal-overlay hidden" id="settings-modal">
+        <div class="modal-card glass-card">
+            <div class="modal-header">
+                <h3>API Configuration</h3>
+                <button class="close-btn" id="close-settings-btn">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="input-field">
+                    <label for="settings-api-url">API Base URL</label>
+                    <input type="text" id="settings-api-url" placeholder="http://127.0.0.1:8000">
+                    <span class="field-help">Target port of your active FastAPI dev server. Leave blank to default to relative hostname origin.</span>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="action-btn-primary" id="save-settings-btn">Save Configurations</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/app.js"></script>
+</body>
+</html>

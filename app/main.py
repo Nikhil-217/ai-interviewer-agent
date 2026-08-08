@@ -2,6 +2,9 @@ import os
 import json
 from typing import List, Optional, Dict, Any
 from fastapi import FastAPI, HTTPException, status
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field
 from openai import OpenAI
 from dotenv import load_dotenv
@@ -10,6 +13,15 @@ from app.loader import load_curriculum, build_focus_map
 load_dotenv()
 
 app = FastAPI(title="AI Interview Agent", version="1.0.0")
+
+# Enable CORS for frontend flexibility
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # Load curriculum at startup
 CURRICULUM_PATH = os.path.join(os.path.dirname(__file__), "..", "curriculum.json")
@@ -556,3 +568,34 @@ def handle_interview_turn(request: IncomingRequest):
         status_code=status.HTTP_400_BAD_REQUEST,
         detail="Invalid request. Either 'candidate' (for start) or 'message' (for subsequent turns) must be provided."
     )
+
+# --- Additional UI & Metadata Endpoints ---
+
+@app.get("/api/candidates")
+def get_candidates():
+    """
+    Returns the list of candidates from candidates.json for the frontend dropdown.
+    """
+    candidates_path = os.path.join(os.path.dirname(__file__), "..", "candidates.json")
+    try:
+        with open(candidates_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return data.get("candidates", [])
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to load candidates: {e}"
+        )
+
+# Serve root route with index.html
+@app.get("/", response_class=HTMLResponse)
+def serve_homepage():
+    index_path = os.path.join(os.path.dirname(__file__), "static", "index.html")
+    if not os.path.exists(index_path):
+        # Graceful placeholder response in case static files are not created yet
+        return "<html><body><h1>AI Interview Agent API</h1><p>Static files loading...</p></body></html>"
+    with open(index_path, "r", encoding="utf-8") as f:
+        return HTMLResponse(content=f.read())
+
+# Mount static folder
+app.mount("/static", StaticFiles(directory=os.path.join(os.path.dirname(__file__), "static")), name="static")
