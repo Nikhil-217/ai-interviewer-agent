@@ -62,8 +62,12 @@
     }
 
     function switchView(panel) {
-        [viewLanding, viewChat, viewFeedback].forEach(p => p.classList.add("hidden"));
+        [viewLanding, viewChat, viewFeedback].forEach(p => {
+            p.classList.add("hidden");
+            p.classList.remove("active");
+        });
         panel.classList.remove("hidden");
+        panel.classList.add("active");
     }
 
     function clearErrors() {
