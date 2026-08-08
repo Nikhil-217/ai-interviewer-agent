@@ -1,88 +1,91 @@
-# AI Interview Agent
+# AI Technical Interviewer Agent
 
-A production-style backend service built for a technical hackathon challenge. This API conducts realistic, multi-turn, adaptive technical interviews with candidates based on their learning history from a 31-day engineering boot camp. 
-
-Instead of static, quiz-like templates, this agent tailors every question and evaluation dynamically to what the candidate completed, skipped, or struggled with, adjusting query difficulty on the fly.
+A production-style FastAPI backend service and glassmorphic single-page web UI built for technical hackathon evaluations. The agent simulates multi-turn, adaptive technical interviews probing candidates on their Boot Camp learning journey, adjusting questions on the fly based on completed milestones, skipped days, and attempts.
 
 ---
 
-## Key Features
+## 🏗️ System Architecture
 
-1. **Focus Map Scheduler**: Evaluates candidate metrics and boot camp history deterministically to prioritize high-risk gaps (skipped/failed days) and verify masteries.
-2. **Orchestrator State Machine**: Manages session progression across curriculum topics, asking exactly 2 questions per day and concluding after covering $\ge 4$ distinct days and $\ge 8$ total questions.
-3. **Adaptive LLM Prompts**: Implements difficulty adaptation (conceptual/foundational questions for skipped days; advanced trade-off/design questions for first-try masteries).
-4. **Hardened Context & Token Management**: Binds context bloat by dynamically summarizing history turns once history size reaches 8 messages, keeping the memory footprint minimal.
-5. **JSON Feedback Grounding**: Produces structured feedback reports validated against Pydantic schemas, with strengths, gaps, and recommendations grounded in specific curriculum days.
-6. **Provider Swappability**: Full swappability to target OpenAI, DeepSeek, or local LLMs (like Ollama, LM Studio, or vLLM) with zero code modifications.
+The following diagram illustrates the lifecycle of a technical interview session, mapping candidate focus calculations, API loops, history summarization, and final evaluators.
+
+```mermaid
+graph TD
+    A[Start Request: POST /api/interview] --> B[Retrieve Curriculum & Candidate Progress]
+    B --> C[Compute Focus Map: loader.py]
+    C --> D[Initialize Session State SESSIONS]
+    D --> E[Generate System Prompt & Adapt Difficulty]
+    E --> F[Ask Initial Question on Day 29 welcome]
+    F --> G[Conversation Loop]
+    G --> H[POST /api/interview message]
+    H --> I{Check move_to_next?}
+    I -- Yes --> J[Increment Day Focus & Reset Day Counter]
+    I -- No --> K[Remain on Current Day]
+    J & K --> L[Append User Message & Summarize History if >= 8 msgs]
+    L --> M{Check count >= 8 & days >= 4?}
+    M -- Yes --> N[Generate Structured Final Feedback JSON]
+    M -- No --> O[Call OpenAI / Simulation Fallback]
+    O --> P[Strip MOVE_ON and Set move_to_next if needed]
+    P --> Q[Return Response to Frontend]
+    Q --> G
+    N --> R[Cache Session & Return done: true]
+```
 
 ---
 
-## Local Setup
+## 🛠️ Configuration Settings
 
-### 1. Prerequisites
-- Python 3.8 or higher.
-- Git (optional).
+The application reads configurations from environment variables or a local `.env` file. You can swap the completions engine to target OpenAI, DeepSeek, or any local OpenAI-compatible endpoint (like Ollama or LM Studio) with zero code modifications.
 
-### 2. Installation
-Clone the repository and install the pinned dependencies:
+| Variable Name | Required | Default | Description |
+| :--- | :---: | :--- | :--- |
+| `OPENAI_API_KEY` | **Yes** | — | API credentials for the LLM completions and evaluator. |
+| `OPENAI_BASE_URL` | *No* | Standard OpenAI | URL endpoint targeting compatible providers (e.g. DeepSeek / local Ollama). |
+| `OPENAI_MODEL_NAME` | *No* | `gpt-4o-mini` | Model identifier to query for questions and final evaluations. |
+
+---
+
+## 🚀 Getting Started
+
+### 1. Installation
+Ensure Python 3.8+ is installed on your local system:
 
 ```bash
-# Create a virtual environment
-python -m venv .venv
-source .venv/bin/activate  # On Windows: .venv\Scripts\activate
+# Clone and enter directory
+cd ai-interviewer-agent
 
-# Install dependencies
+# Set up and activate virtual environment
+python -m venv .venv
+source .venv/bin/activate  # On Windows use: .venv\Scripts\activate
+
+# Install pinned dependencies
 pip install -r requirements.txt
 ```
 
-### 3. Environment Configuration
-Copy the configuration template and add your API keys:
-
+### 2. Configure Environment variables
+Create a `.env` file matching the template:
 ```bash
 cp .env.example .env
 ```
-
-Open `.env` and fill in:
+Fill in your API credentials:
 ```ini
-OPENAI_API_KEY=your_real_openai_api_key
-
-# Optional parameters to target alternative providers (e.g. DeepSeek / Ollama)
+OPENAI_API_KEY=your_actual_api_key_here
 # OPENAI_BASE_URL=https://api.deepseek.com/v1
 # OPENAI_MODEL_NAME=deepseek-chat
 ```
 
----
-
-## Running the Application
-
-### 1. Start Server locally
-Start the FastAPI development server:
-
+### 3. Running the Server
+Start the Uvicorn dev server:
 ```bash
-uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
 ```
 
-The API docs will be available at: [http://localhost:8000/docs](http://localhost:8000/docs).
+- **Frontend User Interface**: Open [http://127.0.0.1:8000/](http://127.0.0.1:8000/) in your web browser.
+- **Interactive Swagger Documentation**: Browse [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs).
 
-### 2. Run with Docker
-Alternatively, spin up the server inside a Docker container:
-
+### 4. Running the validation suite
+Execute the unit and integration tests:
 ```bash
-# Build the container
-docker build -t ai-interview-agent .
-
-# Run the container
-docker run -p 8000:8000 --env-file .env ai-interview-agent
-```
-
----
-
-## Verification & Testing
-
-Verify system compliance, state machine progression, isolation, and feedback schemas:
-
-```bash
-# Run the entire test suite
+# Run pytest suite
 python -m pytest
 
 # Run compliance contract test report
@@ -91,89 +94,55 @@ python scratch/run_compliance_report.py
 
 ---
 
-## API Contract & Sample Sequence
+## 📡 Developer API curls Sequence
 
-The agent exposes a single `POST /api/interview` endpoint maintaining session state in-memory.
+You can test the complete, multi-turn contract sequence using these cURL commands:
 
-### 1. Start Turn
-Initialize the interview session for a candidate profile.
-
-**Request (`POST /api/interview`)**:
-```json
-{
-  "sessionId": "hackathon-session-abc",
-  "candidate": {
-    "member": {
-      "id": "CAND-001",
-      "name": "Sarah Johnson",
-      "jobRole": "Senior Data Engineer",
-      "yearsExperience": 9,
-      "education": "MS Data Science",
-      "status": "active"
-    },
-    "missions": [
-      { "day": 1, "title": "Pipeline Setup", "passed": true, "attempts": 1 },
-      { "day": 29, "title": "Monitoring & Observability", "skipped": true }
-    ],
-    "signals": {
-      "commitDays": 19,
-      "missionsCompleted": 24,
-      "missionsFirstTry": 2
-    }
-  }
-}
+### 1. Initialize Interview (Start Turn)
+```bash
+curl -X POST "http://127.0.0.1:8000/api/interview" \
+     -H "Content-Type: application/json" \
+     -d '{
+       "sessionId": "curl-test-session-99",
+       "candidate": {
+         "member": {
+           "id": "CAND-001",
+           "name": "Sarah Johnson",
+           "jobRole": "Senior Data Engineer",
+           "yearsExperience": 9,
+           "education": "MS Data Science",
+           "status": "active"
+         },
+         "missions": [
+           { "day": 1, "title": "Pipeline Setup", "passed": true, "attempts": 1 },
+           { "day": 29, "title": "Monitoring & Observability", "skipped": true }
+         ],
+         "signals": {
+           "commitDays": 19,
+           "missionsCompleted": 24,
+           "missionsFirstTry": 2
+         }
+       }
+     }'
 ```
 
-**Response**:
-```json
-{
-  "reply": "Welcome. Let's begin your interview. How would you approach building a pipeline setup on Day 1?",
-  "done": false,
-  "feedback": null
-}
+### 2. Submit Answer (Conversation Turn)
+```bash
+curl -X POST "http://127.0.0.1:8000/api/interview" \
+     -H "Content-Type: application/json" \
+     -d '{
+       "sessionId": "curl-test-session-99",
+       "message": "I skipped Day 29 monitoring because I ran out of time, but I understand prometheus metrics."
+     }'
 ```
 
-### 2. Intermediate Conversation Turn
-Provide candidate answers and receive follow-up questions.
-
-**Request (`POST /api/interview`)**:
-```json
-{
-  "sessionId": "hackathon-session-abc",
-  "message": "I used GitHub actions and set up Dockerized runners for pipeline deployment."
-}
-```
-
-**Response**:
-```json
-{
-  "reply": "Let's explore Day 29: Monitoring and Observability. Why was this skipped in your boot camp journey?",
-  "done": false,
-  "feedback": null
-}
-```
-
-### 3. Final Turn (Turn 8)
-When the session concludes, the API returns the final evaluation feedback.
-
-**Request (`POST /api/interview`)**:
-```json
-{
-  "sessionId": "hackathon-session-abc",
-  "message": "We set up Grafana dashboard monitoring to collect metrics."
-}
-```
-
-**Response**:
-```json
-{
-  "reply": "Interview completed.",
-  "done": true,
-  "feedback": {
-    "summary": "Completed technical interview with mixed results on data engineering.",
-    "strengths": ["Demonstrated clean design of pipelines on Day 1"],
-    "gaps": ["Struggled to explain Prometheus metrics configuration from Day 29"],
-    "next": ["Review logging objectives on Day 29"]
-  }
-}
+### 3. Check Cached Completed Feedback
+Once the interview is concluded (`done: true`), subsequent calls return the cached evaluation directly:
+```bash
+curl -X POST "http://127.0.0.1:8000/api/interview" \
+     -H "Content-Type: application/json" \
+     -d '{
+       "sessionId": "curl-test-session-99",
+       "message": "Hello, is it completed?"
+     }'
 ```
