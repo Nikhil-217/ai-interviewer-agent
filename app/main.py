@@ -131,7 +131,60 @@ Difficulty adaptation path: {difficulty_instruction}
 """
     return system_prompt
 
-def generate_llm_response(system_prompt: str, history: List[Dict[str, str]], current_day_questions: int, day_title: str, running_summary: Optional[str] = None) -> str:
+SIMULATED_QUESTIONS = {
+    1: {
+        "high": {
+            "initial": "On Day 1, setting up the basic development environment and pipelines was skipped or failed. Can you walk me through the basic components of a typical Python web service pipeline, and how you would configure a local virtual environment?",
+            "follow_up": "Understood. Once the local pipeline is set up, what is the role of a requirements file, and how do you ensure package versions do not conflict when deploying to production? [MOVE_ON]"
+        },
+        "low": {
+            "initial": "For Day 1, you successfully set up the development environment and automated pipelines. Can you describe your pipeline configuration, and how you would optimize the build stage to ensure fast container assembly?",
+            "follow_up": "That's a solid strategy. How do you handle continuous integration testing for pipeline code to catch configuration errors before they hit main? [MOVE_ON]"
+        }
+    },
+    7: {
+        "high": {
+            "initial": "On Day 7, sentence embeddings and vector representations were skipped. Let's start conceptually: what is a vector embedding, and how does it map text meaning into a high-dimensional space?",
+            "follow_up": "Right. How do you compare the similarity of two text vectors, and what is the difference between Cosine similarity and Euclidean distance? [MOVE_ON]"
+        },
+        "low": {
+            "initial": "For Day 7, you successfully generated sentence embeddings and clustered them using PCA. Can you explain why you chose PCA over other dimensionality reduction techniques like t-SNE, and what insights you drew from the clusters?",
+            "follow_up": "Great. If you were to transition from local Sentence Transformers to a hosted API like OpenAI Embeddings, how would you design the chunking and rate-limiting logic to handle high-throughput text streams? [MOVE_ON]"
+        }
+    },
+    10: {
+        "high": {
+            "initial": "On Day 10, setting up the vector database was skipped. Conceptually, why do we need a dedicated vector database rather than a standard relational database like PostgreSQL for vector search?",
+            "follow_up": "Correct. How does an index like HNSW (Hierarchical Navigable Small World) accelerate vector search compared to an exhaustive flat search? [MOVE_ON]"
+        },
+        "low": {
+            "initial": "On Day 10, you successfully integrated a vector database. Can you walk me through your indexing strategy, and how you tuned parameters like `ef_construction` and `M` to balance query latency vs recall accuracy?",
+            "follow_up": "That's a very advanced tuning. If you need to perform metadata filtering (e.g. search only documents created in the last 30 days), how would you design pre-filtering vs post-filtering in the vector DB? [MOVE_ON]"
+        }
+    },
+    14: {
+        "high": {
+            "initial": "On Day 14, RAG and hybrid retrieval routing failed or were skipped. Can you explain the basic flow of Retrieval-Augmented Generation, and why retrieving external documents helps reduce LLM hallucinations?",
+            "follow_up": "Exactly. If the retrieved chunks contain conflicting information, how would you instruct the LLM to handle the discrepancy in its final response? [MOVE_ON]"
+        },
+        "low": {
+            "initial": "On Day 14, you implemented RAG with hybrid retrieval routing. How did you combine keyword search scores (BM25) with vector similarity scores, and what normalization technique (e.g. Reciprocal Rank Fusion) did you apply?",
+            "follow_up": "Fascinating. How do you evaluate the retrieval quality? What metrics (like Hit Rate or MRR) did you track to ensure the correct context was sent to the generator? [MOVE_ON]"
+        }
+    },
+    29: {
+        "high": {
+            "initial": "On Day 29, the logging and observability setup was skipped. What is the fundamental difference between a structured log, a metric, and a trace, and why do we need all three in a production chatbot?",
+            "follow_up": "Exactly. If your chatbot API starts experiencing high latency, how would you use Prometheus metrics to isolate whether the bottleneck is in LLM generation latency or database query overhead? [MOVE_ON]"
+        },
+        "low": {
+            "initial": "On Day 29, you successfully built production logging and Grafana dashboards. Can you describe the specific custom metrics you tracked for your chatbot pipelines, and how you configured alerts for abnormal response latency?",
+            "follow_up": "Excellent observability setup. How do you handle log rotation and trace correlation IDs across asynchronous tasks to debug user sessions? [MOVE_ON]"
+        }
+    }
+}
+
+def generate_llm_response(system_prompt: str, history: List[Dict[str, str]], current_day_questions: int, day_info: Dict[str, Any], running_summary: Optional[str] = None) -> str:
     """
     Calls the OpenAI client to generate the question. Fallback to simulation if client is not configured.
     """
@@ -156,11 +209,24 @@ def generate_llm_response(system_prompt: str, history: List[Dict[str, str]], cur
         except Exception as e:
             print(f"Error calling OpenAI API: {e}. Falling back to simulation.")
             
-    # Simulation Fallback (Offline/Testing mode)
+    # Simulation Fallback (Offline/Testing/Credits exhausted mode)
+    day_num = day_info.get("day", 1)
+    priority = day_info.get("priority", "low")
+    title = day_info.get("title", "Curriculum Topic")
+    
+    day_questions = SIMULATED_QUESTIONS.get(day_num, {})
+    priority_questions = day_questions.get(priority, day_questions.get("low", {}))
+    
     if current_day_questions >= 1:
-        return f"Simulated follow-up question for {day_title}. [MOVE_ON]"
+        # Return follow-up
+        if priority_questions and "follow_up" in priority_questions:
+            return priority_questions["follow_up"]
+        return f"Interesting decision on Day {day_num} ({title}). If you had to re-architect this pipeline today, what scaling blockers would you address first? [MOVE_ON]"
     else:
-        return f"Simulated initial question for {day_title}."
+        # Return initial
+        if priority_questions and "initial" in priority_questions:
+            return priority_questions["initial"]
+        return f"Let's discuss Day {day_num}: {title}. You completed this with priority {priority.upper()}. Can you tell me about the architecture you built and the choices you made?"
 
 def summarize_history(session: Dict[str, Any]) -> None:
     """
@@ -337,7 +403,7 @@ def handle_interview_turn(request: IncomingRequest):
         system_prompt = get_system_prompt(first_day, candidate_dict)
         
         # Call LLM to get the initial question
-        llm_reply = generate_llm_response(system_prompt, [], 0, first_day["title"])
+        llm_reply = generate_llm_response(system_prompt, [], 0, first_day)
         
         # Check if the LLM output returned [MOVE_ON]
         clean_reply = llm_reply.replace("[MOVE_ON]", "").strip()
@@ -432,7 +498,7 @@ def handle_interview_turn(request: IncomingRequest):
             system_prompt,
             session["history"][:-1],  # Pass prior history
             session["current_day_questions"],
-            day_info["title"],
+            day_info,
             session.get("running_summary")
         )
         
@@ -465,7 +531,7 @@ def handle_interview_turn(request: IncomingRequest):
                 new_system_prompt,
                 session["history"],  # Pass history including the latest answer
                 0,
-                next_day_info["title"],
+                next_day_info,
                 session.get("running_summary")
             )
             day_info = next_day_info
