@@ -444,7 +444,7 @@ def handle_interview_turn(request: IncomingRequest):
     if request.message is not None:
         if session_id not in SESSIONS:
             raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
+                status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"No active session found with sessionId '{session_id}'. Please start the interview first."
             )
             

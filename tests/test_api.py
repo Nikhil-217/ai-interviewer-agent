@@ -97,7 +97,7 @@ def test_invalid_session():
         "message": "Hello, is anyone there?"
     }
     response = client.post("/api/interview", json=payload)
-    assert response.status_code == 400
+    assert response.status_code == 404
     assert "No active session found" in response.json()["detail"]
 
 def test_invalid_payload():
