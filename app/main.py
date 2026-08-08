@@ -15,11 +15,17 @@ app = FastAPI(title="AI Interview Agent", version="1.0.0")
 CURRICULUM_PATH = os.path.join(os.path.dirname(__file__), "..", "curriculum.json")
 CURRICULUM = load_curriculum(CURRICULUM_PATH)
 
-# Initialize OpenAI client
+# Initialize OpenAI client with swappable configuration
 api_key = os.environ.get("OPENAI_API_KEY")
+base_url = os.environ.get("OPENAI_BASE_URL")
+model_name = os.environ.get("OPENAI_MODEL_NAME", "gpt-4o-mini")
+
 client = None
 if api_key and api_key != "your_openai_api_key_here":
-    client = OpenAI(api_key=api_key)
+    client = OpenAI(
+        api_key=api_key,
+        base_url=base_url if base_url else None
+    )
 
 # In-memory session store
 SESSIONS: Dict[str, Dict[str, Any]] = {}
@@ -142,7 +148,7 @@ def generate_llm_response(system_prompt: str, history: List[Dict[str, str]], cur
                 messages.append({"role": h["role"], "content": h["content"]})
                 
             response = client.chat.completions.create(
-                model="gpt-4o-mini",
+                model=model_name,
                 messages=messages,
                 temperature=0.7
             )
@@ -179,7 +185,7 @@ def summarize_history(session: Dict[str, Any]) -> None:
         if client is not None:
             try:
                 response = client.chat.completions.create(
-                    model="gpt-4o-mini",
+                    model=model_name,
                     messages=[
                         {"role": "system", "content": summary_prompt},
                         {"role": "user", "content": content_to_summarize}
@@ -252,7 +258,7 @@ def generate_final_feedback(history: List[Dict[str, str]], candidate: Dict[str, 
                         "content": "CRITICAL: The previous output failed to parse as valid JSON. You MUST return ONLY the raw JSON string starting with '{' and ending with '}'. Do not include markdown blocks, warnings, or explanation."
                     })
                 response = client.chat.completions.create(
-                    model="gpt-4o-mini",
+                    model=model_name,
                     messages=current_messages,
                     temperature=0.3,
                     response_format={"type": "json_object"}
