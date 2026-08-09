@@ -31,10 +31,14 @@ def setup_mock_openai():
                 
         if is_feedback:
             raw_json = json.dumps({
-                "summary": "Completed technical interview with standard results.",
+                "overall_score": 7,
+                "concise_interviewer_summary": "Completed technical interview with standard results.",
                 "strengths": ["Demonstrated clean design of pipelines on Day 1"],
-                "gaps": ["Struggled to explain metrics on Day 29"],
-                "next": ["Review objectives on Day 29"]
+                "weaknesses": ["Struggled to explain metrics on Day 29"],
+                "topics_mastered": ["Day 1: Pipelines"],
+                "topics_needing_review": ["Day 29: Metrics"],
+                "recommended_next_steps": ["Review objectives on Day 29"],
+                "per_topic_performance": {"Day 1": 8, "Day 29": 4}
             })
             return MagicMock(choices=[
                 MagicMock(message=MagicMock(content=raw_json))
@@ -85,10 +89,10 @@ def test_all_candidates_compliance(load_candidates, setup_mock_openai):
                 assert "completed" in data["reply"] or "Interview" in data["reply"]
                 feedback = data["feedback"]
                 assert feedback is not None
-                assert isinstance(feedback["summary"], str)
+                assert isinstance(feedback["concise_interviewer_summary"], str)
                 assert isinstance(feedback["strengths"], list)
-                assert isinstance(feedback["gaps"], list)
-                assert isinstance(feedback["next"], list)
+                assert isinstance(feedback["weaknesses"], list)
+                assert isinstance(feedback["recommended_next_steps"], list)
                 
                 # Check session state assertions
                 session_state = SESSIONS[session_id]

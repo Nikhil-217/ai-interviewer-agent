@@ -39,17 +39,25 @@ def setup_mock_openai():
             history_str = str(messages)
             if "Sarah" in history_str or "CAND-001" in history_str:
                 raw_json = json.dumps({
-                    "summary": "Overall completed technical interview with mixed results on data engineering.",
+                    "overall_score": 5,
+                    "concise_interviewer_summary": "Overall completed technical interview with mixed results on data engineering.",
                     "strengths": ["Demonstrated clean design of pipelines on Day 1"],
-                    "gaps": ["Struggled to explain Prometheus metrics configuration from Day 29"],
-                    "next": ["Review logging objectives on Day 29"]
+                    "weaknesses": ["Struggled to explain Prometheus metrics configuration from Day 29"],
+                    "topics_mastered": ["Day 1"],
+                    "topics_needing_review": ["Day 29"],
+                    "recommended_next_steps": ["Review logging objectives on Day 29"],
+                    "per_topic_performance": {}
                 })
             else:
                 raw_json = json.dumps({
-                    "summary": "Overall completed technical interview with high performance.",
+                    "overall_score": 9,
+                    "concise_interviewer_summary": "Overall completed technical interview with high performance.",
                     "strengths": ["Mastered embeddings PCA visualization on Day 7"],
-                    "gaps": ["Could refine routing strategies from Day 10"],
-                    "next": ["Read advanced retrieval strategies from Day 10"]
+                    "weaknesses": ["Could refine routing strategies from Day 10"],
+                    "topics_mastered": ["Day 7"],
+                    "topics_needing_review": ["Day 10"],
+                    "recommended_next_steps": ["Read advanced retrieval strategies from Day 10"],
+                    "per_topic_performance": {}
                 })
             return MagicMock(choices=[
                 MagicMock(message=MagicMock(content=raw_json))
@@ -90,8 +98,8 @@ def test_feedback_differentiation(load_candidates, setup_mock_openai):
     sarah_feedback = sarah_data["feedback"]
     assert sarah_feedback is not None
     # Verify grounded strengths/gaps for Sarah (Day 29)
-    assert "Day 29" in str(sarah_feedback["gaps"]) or "Day 29" in str(sarah_feedback["next"])
-    assert "Prometheus" in str(sarah_feedback["gaps"])
+    assert "Day 29" in str(sarah_feedback["weaknesses"]) or "Day 29" in str(sarah_feedback["recommended_next_steps"])
+    assert "Prometheus" in str(sarah_feedback["weaknesses"])
     assert "Day 1" in str(sarah_feedback["strengths"])
     
     # 2. Test Emily Chen (CAND-003) - Master
@@ -121,12 +129,12 @@ def test_feedback_differentiation(load_candidates, setup_mock_openai):
     # Verify grounded strengths/gaps for Emily (Day 7 / Day 10)
     assert "Day 7" in str(emily_feedback["strengths"])
     assert "embeddings PCA" in str(emily_feedback["strengths"])
-    assert "Day 10" in str(emily_feedback["gaps"])
+    assert "Day 10" in str(emily_feedback["weaknesses"])
     
     # Ensure feedback values differ meaningfully
-    assert sarah_feedback["summary"] != emily_feedback["summary"]
+    assert sarah_feedback["concise_interviewer_summary"] != emily_feedback["concise_interviewer_summary"]
     assert sarah_feedback["strengths"] != emily_feedback["strengths"]
-    assert sarah_feedback["gaps"] != emily_feedback["gaps"]
+    assert sarah_feedback["weaknesses"] != emily_feedback["weaknesses"]
     
     # Clean up
     if sarah_session in SESSIONS:

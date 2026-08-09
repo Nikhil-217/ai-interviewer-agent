@@ -8,7 +8,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="/static/styles.css">
+    <link rel="stylesheet" href="/static/styles.css?v=2">
 </head>
 <body>
     <div class="app-container">
@@ -127,8 +127,33 @@
                 <div class="feedback-layout">
                     <!-- Overall Summary Card -->
                     <div class="summary-feedback-card glass-card">
-                        <h3>Assessment Summary</h3>
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+                            <h3 style="margin: 0;">Assessment Summary</h3>
+                            <div class="score-badge">Score: <span id="overall-score">-</span>/10</div>
+                        </div>
                         <p id="feedback-summary-text">-</p>
+                    </div>
+
+                    <!-- Topics Mastered / Needs Review Cards -->
+                    <div class="feedback-grid topics-grid" style="margin-top: 1.5rem;">
+                        <div class="report-card card-mastered glass-card">
+                            <div class="card-header">
+                                <span class="card-icon">🎓</span>
+                                <h4>Topics Mastered</h4>
+                            </div>
+                            <div class="topic-pills" id="topics-mastered-list">
+                                <!-- Injected -->
+                            </div>
+                        </div>
+                        <div class="report-card card-review glass-card">
+                            <div class="card-header">
+                                <span class="card-icon">📚</span>
+                                <h4>Topics to Review</h4>
+                            </div>
+                            <div class="topic-pills" id="topics-review-list">
+                                <!-- Injected -->
+                            </div>
+                        </div>
                     </div>
 
                     <!-- Strengths, Gaps, Next Steps Grid -->
@@ -197,6 +222,6 @@
         </div>
     </div>
 
-    <script src="/static/app.js"></script>
+    <script src="/static/app.js?v=2"></script>
 </body>
 </html>

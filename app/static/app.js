@@ -41,6 +41,9 @@
 
     // Feedback nodes
     const feedbackSummaryText = document.getElementById("feedback-summary-text");
+    const overallScoreText = document.getElementById("overall-score");
+    const topicsMasteredList = document.getElementById("topics-mastered-list");
+    const topicsReviewList = document.getElementById("topics-review-list");
     const strengthsList = document.getElementById("strengths-list");
     const gapsList = document.getElementById("gaps-list");
     const nextList = document.getElementById("next-list");
@@ -284,7 +287,8 @@
     function renderFeedback(feedback) {
         if (!feedback) return;
         
-        feedbackSummaryText.textContent = feedback.summary || "No summary provided.";
+        feedbackSummaryText.textContent = feedback.concise_interviewer_summary || "No summary provided.";
+        overallScoreText.textContent = feedback.overall_score !== undefined ? feedback.overall_score : "-";
         
         // Helper to fill list
         const populateList = (element, items) => {
@@ -301,10 +305,28 @@
                 });
             }
         };
+
+        // Helper to fill pills
+        const populatePills = (element, items, typeClass) => {
+            element.innerHTML = "";
+            if (!items || items.length === 0) {
+                element.innerHTML = "<em>None</em>";
+            } else {
+                items.forEach(item => {
+                    const span = document.createElement("span");
+                    span.className = `topic-pill ${typeClass}`;
+                    span.textContent = item;
+                    element.appendChild(span);
+                });
+            }
+        };
         
+        populatePills(topicsMasteredList, feedback.topics_mastered, "pill-mastered");
+        populatePills(topicsReviewList, feedback.topics_needing_review, "pill-review");
+
         populateList(strengthsList, feedback.strengths);
-        populateList(gapsList, feedback.gaps);
-        populateList(nextList, feedback.next);
+        populateList(gapsList, feedback.weaknesses);
+        populateList(nextList, feedback.recommended_next_steps);
     }
 
     restartBtn.addEventListener("click", function() {

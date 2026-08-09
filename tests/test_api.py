@@ -83,10 +83,10 @@ def test_full_interview_flow(sample_candidate, setup_mock_openai):
     
     feedback = data["feedback"]
     assert feedback is not None
-    assert "summary" in feedback
+    assert "overall_score" in feedback
     assert isinstance(feedback["strengths"], list)
-    assert isinstance(feedback["gaps"], list)
-    assert isinstance(feedback["next"], list)
+    assert isinstance(feedback["weaknesses"], list)
+    assert isinstance(feedback["recommended_next_steps"], list)
     
     if session_id in SESSIONS:
         del SESSIONS[session_id]

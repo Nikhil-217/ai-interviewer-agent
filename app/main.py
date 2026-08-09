@@ -75,10 +75,17 @@ class IncomingRequest(BaseModel):
     message: Optional[str] = None
 
 class Feedback(BaseModel):
-    summary: str
+    overall_score: int
+    concise_interviewer_summary: str
+    summary: Optional[str] = None
     strengths: List[str]
-    gaps: List[str]
-    next: List[str]
+    weaknesses: List[str]
+    gaps: Optional[List[str]] = None
+    topics_mastered: List[str]
+    topics_needing_review: List[str]
+    recommended_next_steps: List[str]
+    next: Optional[List[str]] = None
+    per_topic_performance: Dict[str, int]
 
 class OutgoingResponse(BaseModel):
     reply: str
@@ -105,12 +112,12 @@ def get_system_prompt(day_info: Dict[str, Any], candidate_info: Dict[str, Any]) 
     # Difficulty Adaptation rules
     if priority == "high":
         difficulty_instruction = (
-            "The candidate SKIPPED or FAILED this topic in their coursework. "
+            "The candidate either skipped/failed this topic or struggled significantly (required 3+ attempts) to pass it. "
             "Start with foundational, conceptual questions to probe basic understanding and clarify potential gaps."
         )
     elif priority == "medium":
         difficulty_instruction = (
-            "The candidate struggled slightly (required multiple attempts) to pass this topic. "
+            "The candidate struggled slightly (required 2 attempts) to pass this topic. "
             "Start with intermediate questions focusing on practical details, troubleshooting, or implementation gotchas."
         )
     else:
@@ -140,6 +147,7 @@ Difficulty adaptation path: {difficulty_instruction}
 3. React to what the candidate just said. If they gave a vague answer, probe it. If they made a claim, ask for reasoning.
 4. Do NOT use markdown lists (bullet points or numbered lists) or headers in your response. Keep it as normal, natural speech.
 5. **Moderator Instruction**: If you have sufficiently probed this topic (or have asked 2 questions on this topic), you MUST append `[MOVE_ON]` at the very end of your response so the backend knows to transition.
+6. If the candidate says 'I don't know', admits a mistake, or answers incorrectly, do NOT respond with praise like 'great', 'interesting', 'perfect', or 'excellent'. Instead, respond neutrally and professionally using phrases like 'Ok', 'No problem', or 'Understood' before moving to the next question or probing.
 """
     return system_prompt
 
@@ -196,7 +204,35 @@ SIMULATED_QUESTIONS = {
     }
 }
 
-def generate_llm_response(system_prompt: str, history: List[Dict[str, str]], current_day_questions: int, day_info: Dict[str, Any], running_summary: Optional[str] = None) -> str:
+def clean_simulation_prefix(question: str, user_last_msg: str) -> str:
+    user_lower = user_last_msg.lower()
+    is_clueless = (
+        "don't know" in user_lower or 
+        "dont know" in user_lower or 
+        "not sure" in user_lower or 
+        "no idea" in user_lower or
+        "sorry" in user_lower or
+        "difficult" in user_lower or
+        len(user_last_msg.strip()) < 15
+    )
+    if is_clueless:
+        # Standard positive reinforcements to strip from simulated questions
+        positive_prefixes = [
+            "Great.", "Excellent.", "Excellent observability setup.",
+            "That's a solid strategy.", "That's a very advanced tuning.",
+            "Fascinating.", "Right.", "Correct.", "Understood."
+        ]
+        cleaned_question = question
+        for pref in positive_prefixes:
+            if cleaned_question.startswith(pref):
+                cleaned_question = cleaned_question[len(pref):].strip()
+        
+        # Prepend professional/neutral feedback
+        return f"Ok, no problem. {cleaned_question}"
+    
+    return question
+
+def generate_llm_response(system_prompt: str, history: List[Dict[str, str]], current_day_questions: int, day_info: Dict[str, Any], running_summary: Optional[str] = None, user_last_msg: Optional[str] = None) -> str:
     """
     Calls the OpenAI client to generate the question. Fallback to simulation if client is not configured.
     """
@@ -232,13 +268,23 @@ def generate_llm_response(system_prompt: str, history: List[Dict[str, str]], cur
     if current_day_questions >= 1:
         # Return follow-up
         if priority_questions and "follow_up" in priority_questions:
-            return priority_questions["follow_up"]
-        return f"Interesting decision on Day {day_num} ({title}). If you had to re-architect this pipeline today, what scaling blockers would you address first? [MOVE_ON]"
+            reply = priority_questions["follow_up"]
+        else:
+            reply = f"Interesting decision on Day {day_num} ({title}). If you had to re-architect this pipeline today, what scaling blockers would you address first? [MOVE_ON]"
+        
+        if user_last_msg:
+            reply = clean_simulation_prefix(reply, user_last_msg)
+        return reply
     else:
         # Return initial
         if priority_questions and "initial" in priority_questions:
-            return priority_questions["initial"]
-        return f"Let's discuss Day {day_num}: {title}. You completed this with priority {priority.upper()}. Can you tell me about the architecture you built and the choices you made?"
+            reply = priority_questions["initial"]
+        else:
+            reply = f"Let's discuss Day {day_num}: {title}. You completed this with priority {priority.upper()}. Can you tell me about the architecture you built and the choices you made?"
+        
+        if user_last_msg:
+            reply = clean_simulation_prefix(reply, user_last_msg)
+        return reply
 
 def summarize_history(session: Dict[str, Any]) -> None:
     """
@@ -283,7 +329,99 @@ def summarize_history(session: Dict[str, Any]) -> None:
         session["running_summary"] = new_summary
         session["history"] = history[4:]
 
-def generate_final_feedback(history: List[Dict[str, str]], candidate: Dict[str, Any], running_summary: Optional[str] = None) -> Feedback:
+def generate_dynamic_fallback_feedback(full_transcript: List[Dict[str, str]], candidate: Dict[str, Any]) -> str:
+    import re
+    cand_name = candidate.get("member", {}).get("name", "The candidate")
+    
+    strengths_list = []
+    weaknesses_list = []
+    topics_mastered = []
+    topics_needing_review = []
+    recommended_next_steps = []
+    per_topic_performance = {}
+    
+    current_day = None
+    day_answers = {}
+    
+    for msg in full_transcript:
+        if msg["role"] == "assistant":
+            content = msg["content"]
+            match = re.search(r"Day\s+(\d+)", content)
+            if match:
+                current_day = int(match.group(1))
+        elif msg["role"] == "user" and current_day is not None:
+            answer = msg["content"]
+            if current_day not in day_answers:
+                day_answers[current_day] = []
+            day_answers[current_day].append(answer)
+    
+    for day, answers in day_answers.items():
+        combined = " ".join(answers).strip()
+        combined_lower = combined.lower()
+        day_title = CURRICULUM.get(day, {}).get("title", f"Day {day} topic")
+        
+        is_clueless = (
+            "don't know" in combined_lower or 
+            "dont know" in combined_lower or 
+            "not sure" in combined_lower or 
+            "no idea" in combined_lower or
+            "sorry" in combined_lower or
+            len(combined) < 20
+        )
+        
+        if is_clueless:
+            weaknesses_list.append(f"Weakness: mistake or lack of detail in explaining Day {day} ({day_title}). Candidate responded: '{combined[:40]}...'")
+            topics_needing_review.append(f"Day {day}: {day_title}")
+            recommended_next_steps.append(f"Review the learning objectives and hands-on exercises for Day {day} ({day_title}).")
+            per_topic_performance[f"Day {day}"] = 2
+        else:
+            strengths_list.append(f"Strength: strong understanding of Day {day} ({day_title}) as shown in their answers.")
+            topics_mastered.append(f"Day {day}: {day_title}")
+            per_topic_performance[f"Day {day}"] = 9
+    
+    # Check if the candidate actually answered anything
+    if not day_answers:
+        concise_interviewer_summary = f"{cand_name} did not provide substantive answers to the interview questions."
+        overall_score = 0
+    else:
+        # Deduplicate
+        strengths_list = list(dict.fromkeys(strengths_list))
+        weaknesses_list = list(dict.fromkeys(weaknesses_list))
+        topics_mastered = list(dict.fromkeys(topics_mastered))
+        topics_needing_review = list(dict.fromkeys(topics_needing_review))
+        recommended_next_steps = list(dict.fromkeys(recommended_next_steps))
+        
+        passed_count = len(strengths_list)
+        weaknesses_count = len(weaknesses_list)
+        
+        if weaknesses_count == 0 and passed_count > 0:
+            concise_interviewer_summary = f"{cand_name} performed exceptionally well across all tested curriculum topics, showing deep technical proficiency and clear communication."
+            overall_score = 9
+        elif passed_count >= weaknesses_count and passed_count > 0:
+            concise_interviewer_summary = f"{cand_name} completed the technical interview successfully, demonstrating strong comprehension in most areas but showing specific mistakes or conceptual gaps in some cohort topics."
+            overall_score = 7
+        elif passed_count == 0 and weaknesses_count > 0:
+            concise_interviewer_summary = f"{cand_name} struggled with all technical questions asked during the interview, demonstrating significant knowledge gaps."
+            overall_score = 2
+        else:
+            concise_interviewer_summary = f"{cand_name} completed the technical interview, but struggled with several core curriculum topics. Focused review on the cohort modules is recommended."
+            overall_score = 4
+            
+    return json.dumps({
+        "overall_score": overall_score,
+        "concise_interviewer_summary": concise_interviewer_summary,
+        "summary": concise_interviewer_summary,
+        "strengths": strengths_list,
+        "weaknesses": weaknesses_list,
+        "gaps": weaknesses_list,
+        "topics_mastered": topics_mastered,
+        "topics_needing_review": topics_needing_review,
+        "recommended_next_steps": recommended_next_steps,
+        "next": recommended_next_steps,
+        "per_topic_performance": per_topic_performance
+    })
+
+def generate_final_feedback(full_transcript: List[Dict[str, str]], candidate: Dict[str, Any]) -> Feedback:
     """
     Evaluates the full conversation history to produce end-of-interview structured feedback,
     grounding strengths/gaps/next in specific days/modules. Validates and retries on failure.
@@ -294,16 +432,22 @@ def generate_final_feedback(history: List[Dict[str, str]], candidate: Dict[str, 
             "content": (
                 "You are an expert technical interviewer evaluating a candidate after a multi-turn technical interview. "
                 "Produce a structured feedback evaluation in JSON format. "
+                "Analyze the candidate's actual answers in the conversation history. Identify their mistakes, correct concepts, strong concepts, and weak concepts. "
+                "If the candidate provided little or no substantive answers, clearly state this in the summary, give an overall score of 0, and leave lists empty if appropriate.\n"
                 "You MUST return ONLY a JSON object matching this exact schema:\n"
                 "{\n"
-                '  "summary": "Overall summary of candidate performance",\n'
-                '  "strengths": ["list of specific strengths"],\n'
-                '  "gaps": ["list of specific gaps/weaknesses"],\n'
-                '  "next": ["list of concrete recommendations/next steps"]\n'
+                '  "overall_score": 0,\n'
+                '  "concise_interviewer_summary": "Overall summary of candidate performance",\n'
+                '  "strengths": ["list of specific strong concepts and correct answers"],\n'
+                '  "weaknesses": ["list of specific mistakes and weak concepts"],\n'
+                '  "topics_mastered": ["list of topics"],\n'
+                '  "topics_needing_review": ["list of topics"],\n'
+                '  "recommended_next_steps": ["list of concrete recommendations/next steps"],\n'
+                '  "per_topic_performance": {"Day 1": 8}\n'
                 "}\n"
                 "Do NOT wrap it in ```json codeblocks. Do NOT write any conversational prose before or after the JSON. "
-                "CRITICAL REQUIREMENT: Ground every single strength, gap, and next-step recommendation in a SPECIFIC day or module from the interview. "
-                "For example, write 'Gap: struggled to explain Prometheus logging config from Day 29' instead of 'struggled with logging'. "
+                "CRITICAL REQUIREMENT: Ground every single strength, weakness, and next-step recommendation in a SPECIFIC day or module from the interview. "
+                "For example, write 'Weakness: mistake in explaining HNSW search latency vs recall on Day 8' or 'Strength: clear explanation of PCA clustering on Day 7'. "
                 "Be specific, critical, and objective."
             )
         },
@@ -313,13 +457,7 @@ def generate_final_feedback(history: List[Dict[str, str]], candidate: Dict[str, 
         }
     ]
     
-    if running_summary:
-        messages.append({
-            "role": "system",
-            "content": f"Here is a summary of the earlier part of the conversation: {running_summary}"
-        })
-        
-    for h in history:
+    for h in full_transcript:
         messages.append({"role": h["role"], "content": h["content"]})
         
     attempts = 2
@@ -343,27 +481,13 @@ def generate_final_feedback(history: List[Dict[str, str]], candidate: Dict[str, 
                 )
                 raw_output = response.choices[0].message.content.strip()
             except Exception as e:
-                print(f"Error calling OpenAI completions: {e}")
+                print(f"Error calling OpenAI completions: {e}. Falling back to dynamic mock generator.")
                 last_error = e
+                # Fall back to dynamic generator on OpenAI error
+                raw_output = generate_dynamic_fallback_feedback(full_transcript, candidate)
         else:
-            # Fallback mock feedback for testing/simulation
-            has_sarah = "Sarah" in candidate.get("member", {}).get("name", "")
-            # Let's write a mock feedback that satisfies the "grounded in specific day" rule
-            if has_sarah:
-                raw_output = json.dumps({
-                    "summary": "Completed technical interview with mixed results on data engineering.",
-                    "strengths": ["Demonstrated clean design of pipelines on Day 1"],
-                    "gaps": ["Struggled to explain Prometheus metrics configuration from Day 29"],
-                    "next": ["Review logging objectives on Day 29"]
-                })
-            else:
-                raw_output = json.dumps({
-                    "summary": "Completed technical interview with high performance.",
-                    "strengths": ["Mastered embeddings PCA visualization on Day 7"],
-                    "gaps": ["Could refine routing strategies from Day 10"],
-                    "next": ["Read advanced retrieval strategies from Day 10"]
-                })
-                
+            raw_output = generate_dynamic_fallback_feedback(full_transcript, candidate)
+            
         try:
             cleaned = raw_output
             if cleaned.startswith("```"):
@@ -377,10 +501,14 @@ def generate_final_feedback(history: List[Dict[str, str]], candidate: Dict[str, 
             
     # If all attempts fail, return a fallback Feedback object
     return Feedback(
-        summary="Technical interview completed. Some parsing errors occurred while processing detailed feedback.",
-        strengths=["Overall completion of technical assessment"],
-        gaps=["Details on specific focus topics could not be parsed"],
-        next=["Review entire bootcamp objectives list"]
+        overall_score=0,
+        concise_interviewer_summary="Technical interview completed. Some parsing errors occurred while processing detailed feedback. The response couldn't be evaluated properly.",
+        strengths=["Overall completion of technical assessment (fallback)"],
+        weaknesses=["Details on specific focus topics could not be parsed"],
+        topics_mastered=[],
+        topics_needing_review=[],
+        recommended_next_steps=["Review entire bootcamp objectives list"],
+        per_topic_performance={}
     )
 
 # --- API Endpoints ---
@@ -429,6 +557,7 @@ def handle_interview_turn(request: IncomingRequest):
             "current_focus_index": 0,
             "current_day_questions": 1,
             "history": [{"role": "assistant", "content": final_reply}],
+            "full_transcript": [{"role": "assistant", "content": final_reply}],
             "running_summary": "",
             "completed": False,
             "feedback": None,
@@ -466,6 +595,7 @@ def handle_interview_turn(request: IncomingRequest):
             )
             
         session["history"].append({"role": "user", "content": request.message})
+        session["full_transcript"].append({"role": "user", "content": request.message})
         
         # Check if we should summarize history before proceeding (context management)
         summarize_history(session)
@@ -473,10 +603,17 @@ def handle_interview_turn(request: IncomingRequest):
         # Check termination condition
         if session["questions_asked"] >= 8 and len(session["days_covered"]) >= 4:
             # Conclude interview
-            feedback = generate_final_feedback(session["history"], session["candidate"], session.get("running_summary"))
+            feedback = generate_final_feedback(session["full_transcript"], session["candidate"])
+            
+            # Serialize and ensure backward compatibility for cached frontends
+            feedback_dict = feedback.model_dump()
+            feedback_dict["summary"] = feedback_dict.get("concise_interviewer_summary", "")
+            feedback_dict["gaps"] = feedback_dict.get("weaknesses", [])
+            feedback_dict["next"] = feedback_dict.get("recommended_next_steps", [])
+            
             # Cache completed state
             session["completed"] = True
-            session["feedback"] = feedback.model_dump()
+            session["feedback"] = feedback_dict
             
             return OutgoingResponse(
                 reply="Interview completed.",
@@ -485,6 +622,17 @@ def handle_interview_turn(request: IncomingRequest):
             )
             
         # Check if we should transition to the next topic before generating the next question
+        user_lower = request.message.lower().strip()
+        is_clueless_response = (
+            "don't know" in user_lower or 
+            "dont know" in user_lower or 
+            "not sure" in user_lower or 
+            "no idea" in user_lower or
+            "sorry" in user_lower
+        )
+        if is_clueless_response and session.get("current_day_questions", 0) == 1:
+            session["move_to_next"] = True
+
         if session.get("move_to_next", False):
             session["current_focus_index"] += 1
             session["current_day_questions"] = 0
@@ -515,10 +663,11 @@ def handle_interview_turn(request: IncomingRequest):
         system_prompt = get_system_prompt(day_info, session["candidate"])
         llm_reply = generate_llm_response(
             system_prompt,
-            session["history"][:-1],  # Pass prior history
+            session["history"],  # Pass full history so LLM gets latest user response
             session["current_day_questions"],
             day_info,
-            session.get("running_summary")
+            session.get("running_summary"),
+            user_last_msg=request.message  # Pass latest user message to clean simulation prefixes
         )
         
         # Determine if we should transition on the NEXT turn
@@ -534,6 +683,7 @@ def handle_interview_turn(request: IncomingRequest):
         if day_info["day"] not in session["days_covered"]:
             session["days_covered"].append(day_info["day"])
         session["history"].append({"role": "assistant", "content": clean_reply})
+        session["full_transcript"].append({"role": "assistant", "content": clean_reply})
         
         return OutgoingResponse(
             reply=clean_reply,

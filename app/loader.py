@@ -59,21 +59,21 @@ def build_focus_map(candidate: Dict[str, Any], curriculum: Dict[int, Dict[str, A
         mission = next((m for m in missions if m.get("day") == day_num), None)
         
         status = "implicit_pass"
-        risk_score = 0
+        risk_score = 1
         strength_score = 5
-        reason = "Completed successfully with normal progress."
+        reason = "No cohort progress recorded for this day."
         priority = "low"
         
         if mission is not None:
             if mission.get("skipped") is True:
                 status = "skipped"
-                risk_score = 10
+                risk_score = 1
                 strength_score = 0
                 reason = "Candidate skipped this mission."
                 priority = "high"
             elif mission.get("passed") is False:
                 status = "failed"
-                risk_score = 8
+                risk_score = 1
                 strength_score = 0
                 attempts = mission.get("attempts", 1)
                 reason = f"Candidate failed this mission after {attempts} attempt(s)."
@@ -83,19 +83,19 @@ def build_focus_map(candidate: Dict[str, Any], curriculum: Dict[int, Dict[str, A
                 attempts = mission.get("attempts", 1)
                 if attempts >= 3:
                     status = "struggled"
-                    risk_score = 6
+                    risk_score = 10
                     strength_score = 2
                     reason = f"Passed, but struggled (required {attempts} attempts)."
-                    priority = "medium"
+                    priority = "high"
                 elif attempts == 2:
                     status = "struggled_slightly"
-                    risk_score = 4
+                    risk_score = 8
                     strength_score = 4
                     reason = "Passed on the second attempt."
                     priority = "medium"
                 else:
                     status = "passed_first_try"
-                    risk_score = 1
+                    risk_score = 6
                     strength_score = 8
                     reason = "Passed on the first attempt."
                     priority = "low"

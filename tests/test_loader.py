@@ -83,19 +83,19 @@ def test_build_focus_map_scoring_rules(curriculum):
     focus_map = build_focus_map(mock_candidate, curriculum)
     focus_days = focus_map["focus_days"]
     
-    # Let's check that Day 1 (skipped), Day 2 (failed), and Day 3 (struggled with 4 attempts) are in focus_days
+    # Let's check that Day 3 (struggled with 4 attempts), Day 4 (struggled slightly), and Day 5 (passed first try) are in focus_days
     focus_day_nums = [d["day"] for d in focus_days]
     
-    assert 1 in focus_day_nums  # Skipped (Highest risk = 10)
-    assert 2 in focus_day_nums  # Failed (High risk = 8)
-    assert 4 in focus_day_nums  # Struggled slightly (Risk = 4)
+    assert 3 in focus_day_nums  # Passed with 4 attempts (Highest risk = 10)
+    assert 4 in focus_day_nums  # Passed with 2 attempts (Risk = 8)
+    assert 5 in focus_day_nums  # Passed with 1 attempt (Risk = 6)
     
-    # Check sorting order of focus days: Day 1 should be first, Day 2 second, Day 4 third
-    assert focus_days[0]["day"] == 1
-    assert focus_days[1]["day"] == 2
-    assert focus_days[2]["day"] == 4
+    # Check sorting order of focus days: Day 3 should be first, Day 4 second, Day 5 third
+    assert focus_days[0]["day"] == 3
+    assert focus_days[1]["day"] == 4
+    assert focus_days[2]["day"] == 5
     
     # Check reasons match the status
-    assert "skipped" in focus_days[0]["reason"].lower()
-    assert "failed" in focus_days[1]["reason"].lower()
-    assert "attempt" in focus_days[2]["reason"].lower()
+    assert "struggled" in focus_days[0]["reason"].lower()
+    assert "second attempt" in focus_days[1]["reason"].lower()
+    assert "first attempt" in focus_days[2]["reason"].lower()

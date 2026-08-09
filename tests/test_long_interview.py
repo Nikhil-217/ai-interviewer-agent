@@ -173,7 +173,7 @@ def test_long_interview_summarization(sample_candidate, setup_mock_openai):
     cached_data = response.json()
     assert cached_data["done"] is True
     assert cached_data["reply"] == "Interview completed."
-    assert cached_data["feedback"]["summary"] == completion_data["feedback"]["summary"]
+    assert cached_data["feedback"]["concise_interviewer_summary"] == completion_data["feedback"]["concise_interviewer_summary"]
     
     # Clean up
     if session_id in SESSIONS:
