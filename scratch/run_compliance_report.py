@@ -66,7 +66,9 @@ All 5 compliance test cases passed successfully.
 """
     
     # Write to artifacts directory
-    artifact_dir = r"C:\Users\min2a\.gemini\antigravity-ide\brain\30d13870-8bb4-4041-8492-d0c16bf9a735"
+    artifact_dir = r"C:\Users\min2a\.gemini\antigravity-ide\brain\38f13cb8-412a-42df-8fdd-e6e43994be2f"
+    if not os.path.exists(artifact_dir):
+        os.makedirs(artifact_dir, exist_ok=True)
     report_path = os.path.join(artifact_dir, "compliance_report.md")
     
     with open(report_path, "w", encoding="utf-8") as f:
