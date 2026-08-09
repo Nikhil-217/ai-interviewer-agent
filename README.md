@@ -118,6 +118,14 @@ The agent adjusts the depth of the questions based on the candidate's history:
 
 ---
 
+## 📝 Development & Audit Logs
+
+To support developer auditability and track prompt engineering iteration, the project maintains a comprehensive history of interactions:
+
+* **[prompts.md](file:///c:/AgenticInterview/prompts.md)**: A chronological, de-duplicated register of all user instructions and prompts sent to the agent during development. This is useful for analyzing learning trajectories and prompt engineering iterations.
+
+---
+
 ## 📡 Interactive Developer Practice cURL Sequence
 
 You can test the entire multi-turn technical interview lifecycle using these cURL commands:
